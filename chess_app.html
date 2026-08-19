@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chess Analyzer & Trainer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.js"></script>
+<style>
+  :root{
+    --felt: #16261e;
+    --felt-panel: #1d3327;
+    --felt-panel-2: #223a2c;
+    --line: #33513f;
+    --ivory: #efe8d6;
+    --ivory-dim: #b9c2b6;
+    --brass: #c9a24b;
+    --brass-dim: #9c7f3d;
+    --good: #4caf6d;
+    --inacc: #d9c14a;
+    --mistake: #e08a3c;
+    --blunder: #e35b5b;
+    --light-sq: #ebe3c7;
+    --dark-sq: #7c9a6a;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background: radial-gradient(ellipse at top, #1b3226 0%, var(--felt) 55%, #0f1c15 100%);
+    color: var(--ivory);
+    font-family: -apple-system, "Segoe UI", Inter, sans-serif;
+    min-height:100vh;
+    padding: 28px 16px 60px;
+  }
+  h1,h2,h3{ font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif; font-weight:600; margin:0 0 6px; }
+  .wrap{ max-width: 1180px; margin: 0 auto; }
+  header{ text-align:center; margin-bottom: 22px; }
+  header h1{ font-size: 2.1rem; letter-spacing: 0.02em; color: var(--ivory); }
+  header .sub{ color: var(--ivory-dim); font-size: 0.95rem; letter-spacing: 0.03em; }
+  header .sub b{ color: var(--brass); }
+
+  .tabs{ display:flex; justify-content:center; gap: 6px; margin: 20px 0 26px; }
+  .tab-btn{
+    background: transparent; border: 1px solid var(--line); color: var(--ivory-dim);
+    padding: 9px 22px; border-radius: 999px; cursor:pointer; font-size:0.95rem;
+    font-family: Georgia, serif; letter-spacing: 0.03em; transition: all .15s ease;
+  }
+  .tab-btn.active{ background: var(--brass); color: #1c1608; border-color: var(--brass); font-weight:600; }
+  .tab-btn:not(.active):hover{ border-color: var(--brass-dim); color: var(--ivory); }
+
+  .panel{
+    background: linear-gradient(180deg, var(--felt-panel), var(--felt-panel-2));
+    border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; margin-bottom: 18px;
+  }
+  .status-line{ display:flex; align-items:center; gap:8px; font-size:0.85rem; margin-bottom: 14px; color: var(--ivory-dim); }
+  .status-dot{ width:8px; height:8px; border-radius:50%; background:#777; display:inline-block; }
+  .status-ok .status-dot{ background: var(--good); }
+  .status-error .status-dot{ background: var(--blunder); }
+  .status-loading .status-dot{ background: var(--inacc); animation: pulse 1s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+  textarea{
+    width:100%; background:#0f1c15; color: var(--ivory); border:1px solid var(--line);
+    border-radius:8px; padding:10px 12px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size:0.88rem; resize:vertical;
+  }
+  input[type=text]{
+    background:#0f1c15; color: var(--ivory); border:1px solid var(--line); border-radius:8px;
+    padding:8px 10px; font-family: ui-monospace, monospace; font-size:0.85rem;
+  }
+  label{ font-size:0.82rem; color: var(--ivory-dim); display:block; margin-bottom:4px; }
+  button.action{
+    background: var(--brass); color:#1c1608; border:none; border-radius:8px; padding:10px 20px;
+    font-weight:600; cursor:pointer; font-size:0.92rem; letter-spacing:0.02em;
+  }
+  button.action:disabled{ opacity:0.4; cursor:not-allowed; }
+  button.ghost{
+    background: transparent; border:1px solid var(--line); color: var(--ivory-dim);
+    border-radius:8px; padding:8px 14px; cursor:pointer; font-size:0.85rem;
+  }
+  button.ghost:hover{ border-color: var(--brass-dim); color: var(--ivory); }
+
+  .error-box{ background:#3a1a1a; border:1px solid var(--blunder); color:#f3caca; padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-top:10px; }
+  .warn-box{ background:#3a2e14; border:1px solid var(--brass); color:#f0dfae; padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-top:10px; }
+
+  progress{ width:100%; height:8px; accent-color: var(--brass); margin-top:10px; }
+
+  /* board */
+  .board-area{ display:flex; gap:26px; flex-wrap:wrap; align-items:flex-start; }
+  .board-col{ display:flex; gap:10px; }
+  .board-shell{ width:min(440px, 88vw); }
+  .board-grid{
+    display:grid; grid-template-columns: repeat(8,1fr); grid-template-rows: repeat(8,1fr);
+    width:100%; aspect-ratio:1; border:3px solid #0c1610; border-radius:6px; overflow:hidden;
+    position:relative; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .sq{ display:flex; align-items:center; justify-content:center; position:relative; cursor:pointer; user-select:none; }
+  .sq.light{ background: var(--light-sq); }
+  .sq.dark{ background: var(--dark-sq); }
+  .sq.selected{ outline:3px solid var(--brass); outline-offset:-3px; }
+  .sq.lastmove{ box-shadow: inset 0 0 0 999px rgba(201,162,75,0.35); }
+  .sq .dot{ width:22%; height:22%; border-radius:50%; background:rgba(20,20,20,0.35); position:absolute; }
+  .sq .ring{ position:absolute; inset:6%; border:4px solid rgba(20,20,20,0.35); border-radius:50%; }
+  .piece{ font-size: clamp(22px, 6vw, 40px); line-height:1; pointer-events:none; }
+  .piece.white{ color:#fbfaf6; -webkit-text-stroke: 1px #26261f; text-stroke:1px #26261f; }
+  .piece.black{ color:#1d1a15; }
+  .board-arrows{ position:absolute; inset:0; pointer-events:none; }
+
+  .eval-bar-wrap{ display:flex; flex-direction:column; align-items:center; }
+  .eval-bar{ width:34px; border-radius:5px; overflow:hidden; display:flex; flex-direction:column; border:1px solid #0c1610; background:#111; }
+  .eval-fill-black{ background:#181818; }
+  .eval-fill-white{ background:#f2efe6; }
+  .eval-label{ margin-top:6px; font-family: ui-monospace, monospace; font-size:0.82rem; color: var(--ivory); font-weight:600; }
+
+  .side-panel{ flex:1; min-width:260px; }
+  .controls-row{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+  .feedback{ padding:10px 14px; border-radius:8px; font-size:0.9rem; margin-bottom:12px; }
+  .feedback.good{ background:#173a24; border:1px solid var(--good); color:#c9f0d4; }
+  .feedback.bad{ background:#3a2414; border:1px solid var(--mistake); color:#f2d8b8; }
+  .movelist{ font-family: ui-monospace, monospace; font-size:0.85rem; background:#0f1c15; border:1px solid var(--line); border-radius:8px; padding:10px; min-height:40px; max-height:140px; overflow-y:auto; }
+
+  /* analyzer table */
+  table.results{ width:100%; border-collapse:collapse; font-size:0.86rem; }
+  table.results th{ text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); color: var(--brass); font-family: Georgia, serif; }
+  table.results td{ padding:7px 10px; border-bottom:1px solid rgba(255,255,255,0.05); }
+  table.results tr:hover{ background: rgba(255,255,255,0.03); cursor:pointer; }
+  .tag{ padding:2px 9px; border-radius:999px; font-size:0.78rem; font-weight:600; }
+  .tag.good{ background: rgba(76,175,109,0.18); color: var(--good); }
+  .tag.inacc{ background: rgba(217,193,74,0.18); color: var(--inacc); }
+  .tag.mistake{ background: rgba(224,138,60,0.18); color: var(--mistake); }
+  .tag.blunder{ background: rgba(227,91,91,0.18); color: var(--blunder); }
+
+  .summary-row{ display:flex; gap:10px; flex-wrap:wrap; margin: 14px 0; }
+  .summary-card{ flex:1; min-width:120px; background:#0f1c15; border:1px solid var(--line); border-radius:8px; padding:12px 14px; text-align:center; }
+  .summary-card .n{ font-size:1.6rem; font-weight:700; font-family: Georgia, serif; }
+  .summary-card .l{ font-size:0.78rem; color: var(--ivory-dim); }
+
+  .chart-box{ background:#0f1c15; border:1px solid var(--line); border-radius:8px; padding:12px; margin-top:6px; }
+
+  footer{ text-align:center; color: var(--ivory-dim); font-size:0.78rem; margin-top:30px; }
+  a{ color: var(--brass); }
+  @media (max-width:720px){ .board-area{ flex-direction:column; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Chess Analyzer &amp; Trainer</h1>
+    <div class="sub">Runs entirely in your browser &mdash; chess logic and <b>Stockfish</b> load client-side. Nothing to install.</div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="analyzer">Analyzer</button>
+    <button class="tab-btn" data-tab="trainer">Trainer</button>
+  </div>
+
+  <div class="panel">
+    <div class="status-line status-loading" id="engineStatusLine">
+      <span class="status-dot"></span><span id="engineStatusText">Loading Stockfish&hellip;</span>
+      <span style="margin-left:auto;">
+        <label style="display:inline;margin:0 6px 0 0;">Depth</label>
+        <input type="text" id="depthInput" value="14" style="width:44px;text-align:center;">
+      </span>
+    </div>
+    <div id="engineErrorBox"></div>
+  </div>
+
+  <!-- ================= ANALYZER ================= -->
+  <div id="tab-analyzer">
+    <div class="panel">
+      <h2>Paste a PGN</h2>
+      <p style="color:var(--ivory-dim);font-size:0.88rem;margin-top:-4px;">Every move gets an engine evaluation before and after it was played, a classification, and the best alternative.</p>
+      <textarea id="pgnInput" rows="7" placeholder="1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 ..."></textarea>
+      <div style="margin-top:12px; display:flex; gap:10px; align-items:center;">
+        <button class="action" id="analyzeBtn">Analyze Game</button>
+        <span id="analyzeProgressText" style="font-size:0.85rem;color:var(--ivory-dim);"></span>
+      </div>
+      <progress id="analyzeProgress" value="0" max="100" style="display:none;"></progress>
+      <div id="analyzeErrorBox"></div>
+    </div>
+
+    <div class="panel" id="analyzerResultsPanel" style="display:none;">
+      <h2 id="analyzerGameTitle">Game</h2>
+
+      <div class="summary-row" id="summaryCards"></div>
+
+      <div style="display:flex; gap:16px; flex-wrap:wrap;">
+        <div class="chart-box" style="flex:2; min-width:280px;">
+          <div style="font-size:0.82rem;color:var(--ivory-dim);margin-bottom:6px;">Evaluation through the game (White's perspective)</div>
+          <svg id="evalChart" viewBox="0 0 600 160" style="width:100%; height:150px;"></svg>
+        </div>
+        <div class="chart-box" style="flex:1; min-width:220px;">
+          <div style="font-size:0.82rem;color:var(--ivory-dim);margin-bottom:8px;">Move quality</div>
+          <div id="qualityBars"></div>
+        </div>
+      </div>
+
+      <div style="margin:16px 0 8px; display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0;">Move-by-move</h3>
+        <button class="ghost" id="downloadCsvBtn">Download CSV</button>
+      </div>
+      <div style="max-height:360px; overflow-y:auto; border:1px solid var(--line); border-radius:8px;">
+        <table class="results" id="resultsTable"></table>
+      </div>
+
+      <h3 style="margin-top:20px;">Step through the game</h3>
+      <div class="board-area">
+        <div class="board-col">
+          <div class="eval-bar-wrap">
+            <div class="eval-bar" style="height:min(440px,88vw);" id="analyzerEvalBar">
+              <div class="eval-fill-black" style="flex:1;"></div>
+              <div class="eval-fill-white" style="flex:1;"></div>
+            </div>
+            <div class="eval-label" id="analyzerEvalLabel">+0.00</div>
+          </div>
+          <div class="board-shell">
+            <div class="board-grid" id="analyzerBoardGrid"><svg class="board-arrows" id="analyzerArrows" viewBox="0 0 400 400"></svg></div>
+          </div>
+        </div>
+        <div class="side-panel">
+          <input type="text" id="moveSlider" style="display:none;">
+          <div style="margin-bottom:10px;">
+            <input type="range" id="plySlider" min="0" max="0" value="0" style="width:100%;">
+          </div>
+          <div id="analyzerMoveInfo" style="font-size:0.92rem;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= TRAINER ================= -->
+  <div id="tab-trainer" style="display:none;">
+    <div class="panel">
+      <h2>Guess the Move</h2>
+      <p style="color:var(--ivory-dim);font-size:0.88rem;margin-top:-4px;">Click a piece, then click the square to move to. Your move is checked against Stockfish's top 3 choices for the position.</p>
+
+      <div class="controls-row">
+        <div>
+          <label>Custom FEN (optional)</label>
+          <input type="text" id="fenInput" style="width:320px;" placeholder="leave blank for the starting position">
+        </div>
+      </div>
+      <div class="controls-row">
+        <button class="action" id="newGameBtn">New Game</button>
+        <button class="ghost" id="undoBtn">Undo Move</button>
+        <button class="ghost" id="flipBtn">Flip Board</button>
+        <button class="ghost" id="downloadPgnBtn">Download PGN</button>
+      </div>
+
+      <div class="board-area">
+        <div class="board-col">
+          <div class="eval-bar-wrap">
+            <div class="eval-bar" style="height:min(440px,88vw);" id="trainerEvalBar">
+              <div class="eval-fill-black" style="flex:1;"></div>
+              <div class="eval-fill-white" style="flex:1;"></div>
+            </div>
+            <div class="eval-label" id="trainerEvalLabel">+0.00</div>
+          </div>
+          <div class="board-shell">
+            <div class="board-grid" id="trainerBoardGrid"><svg class="board-arrows" id="trainerArrows" viewBox="0 0 400 400"></svg></div>
+          </div>
+        </div>
+        <div class="side-panel">
+          <div id="trainerFeedback"></div>
+          <div style="font-size:0.85rem; color:var(--ivory-dim); margin-bottom:6px;">Move history</div>
+          <div class="movelist" id="trainerMoveList">No moves yet.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>Stockfish runs locally in your browser via a Web Worker. Nothing about your games is sent anywhere.</footer>
+</div>
+
+<script>
+/* =========================================================================
+   ENGINE: loads Stockfish (asm.js build) from cdnjs into a Web Worker.
+   ========================================================================= */
+const STOCKFISH_CDN_URL = "https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js";
+let engineWorker = null;
+let engineReady = false;
+
+function setEngineStatus(kind, text) {
+  const line = document.getElementById('engineStatusLine');
+  const txt = document.getElementById('engineStatusText');
+  line.className = 'status-line status-' + kind;
+  txt.textContent = text;
+}
+
+async function initEngine() {
+  try {
+    setEngineStatus('loading', 'Loading Stockfish\u2026');
+    const resp = await fetch(STOCKFISH_CDN_URL);
+    if (!resp.ok) throw new Error('Could not download the engine (HTTP ' + resp.status + ').');
+    const code = await resp.text();
+    const blob = new Blob([code], { type: 'application/javascript' });
+    engineWorker = new Worker(URL.createObjectURL(blob));
+
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Engine did not respond in time.')), 15000);
+      function onMsg(e) {
+        if (typeof e.data === 'string' && e.data.indexOf('uciok') !== -1) {
+          clearTimeout(timer);
+          engineWorker.removeEventListener('message', onMsg);
+          resolve();
+        }
+      }
+      engineWorker.addEventListener('message', onMsg);
+      engineWorker.postMessage('uci');
+    });
+
+    engineReady = true;
+    setEngineStatus('ok', 'Stockfish ready');
+    document.getElementById('analyzeBtn').disabled = false;
+  } catch (err) {
+    engineReady = false;
+    setEngineStatus('error', 'Engine failed to load');
+    document.getElementById('engineErrorBox').innerHTML =
+      '<div class="error-box">Stockfish could not start: ' + escapeHtml(err.message) +
+      '. This usually means your browser or network blocked the download. Try reloading, or a different browser.</div>';
+  }
+}
+
+/**
+ * Run an analysis at a FEN. Resolves with { bestmoveUci, lines } where
+ * lines is an array (index 0 = best line) of { cp, mate, pv[] } in
+ * UCI-engine POV (i.e. relative to the side to move in that FEN).
+ */
+function analyzePosition(fen, depth, multipv) {
+  return new Promise((resolve, reject) => {
+    if (!engineReady) { reject(new Error('Engine is not ready yet.')); return; }
+    const lines = {};
+    function handler(e) {
+      const data = e.data;
+      if (typeof data !== 'string') return;
+      if (data.indexOf('info') === 0 && data.indexOf(' pv ') !== -1) {
+        const mpvM = /multipv (\d+)/.exec(data);
+        const idx = mpvM ? parseInt(mpvM[1], 10) : 1;
+        const cpM = /score cp (-?\d+)/.exec(data);
+        const mateM = /score mate (-?\d+)/.exec(data);
+        const pvM = / pv (.+)$/.exec(data);
+        if (pvM && (cpM || mateM)) {
+          lines[idx] = {
+            cp: cpM ? parseInt(cpM[1], 10) : null,
+            mate: mateM ? parseInt(mateM[1], 10) : null,
+            pv: pvM[1].trim().split(/\s+/),
+          };
+        }
+      } else if (data.indexOf('bestmove') === 0) {
+        engineWorker.removeEventListener('message', handler);
+        const ordered = Object.keys(lines).sort((a, b) => a - b).map(k => lines[k]);
+        resolve({ bestmoveUci: data.split(' ')[1], lines: ordered });
+      }
+    }
+    engineWorker.addEventListener('message', handler);
+    engineWorker.postMessage('setoption name MultiPV value ' + multipv);
+    engineWorker.postMessage('position fen ' + fen);
+    engineWorker.postMessage('go depth ' + depth);
+  });
+}
+
+/* Convert an engine line's score (side-to-move POV) into White's POV. */
+function normalizeScore(line, turnAtFen) {
+  const sign = turnAtFen === 'w' ? 1 : -1;
+  if (line.mate !== null) {
+    const whiteMate = sign * line.mate;
+    const pawns = whiteMate > 0 ? (100 - Math.min(99, Math.abs(whiteMate))) : -(100 - Math.min(99, Math.abs(whiteMate)));
+    return { isMate: true, mateIn: whiteMate, whitePawns: pawns };
+  }
+  return { isMate: false, whitePawns: (sign * line.cp) / 100 };
+}
+
+function formatEval(norm) {
+  if (norm.isMate) return (norm.mateIn > 0 ? '#' : '#\u2212') + Math.abs(norm.mateIn);
+  const v = norm.whitePawns;
+  return (v >= 0 ? '+' : '') + v.toFixed(2);
+}
+
+function classifyDrop(drop) {
+  if (drop < 0.5) return 'Good/Excellent';
+  if (drop < 1.5) return 'Inaccuracy';
+  if (drop < 3.0) return 'Mistake';
+  return 'Blunder';
+}
+function classTagClass(label) {
+  return { 'Good/Excellent': 'good', 'Inaccuracy': 'inacc', 'Mistake': 'mistake', 'Blunder': 'blunder' }[label];
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* =========================================================================
+   BOARD RENDERING (shared by Analyzer step-through and Trainer)
+   ========================================================================= */
+const PIECE_UNICODE = {
+  wp:'\u2659', wn:'\u2658', wb:'\u2657', wr:'\u2656', wq:'\u2655', wk:'\u2654',
+  bp:'\u265F', bn:'\u265E', bb:'\u265D', br:'\u265C', bq:'\u265B', bk:'\u265A',
+};
+
+function squareName(fileIdx, rankIdx) { // fileIdx 0-7 (a-h), rankIdx 0-7 (1-8)
+  return 'abcdefgh'[fileIdx] + (rankIdx + 1);
+}
+
+function buildBoardGrid(gridEl, orientation, onSquareClick) {
+  gridEl.querySelectorAll('.sq').forEach(el => el.remove());
+  const svg = gridEl.querySelector('.board-arrows');
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const fileIdx = orientation === 'w' ? col : 7 - col;
+      const rankIdx = orientation === 'w' ? 7 - row : row;
+      const sqName = squareName(fileIdx, rankIdx);
+      const div = document.createElement('div');
+      div.className = 'sq ' + (((fileIdx + rankIdx) % 2 === 1) ? 'light' : 'dark');
+      div.dataset.square = sqName;
+      div.addEventListener('click', () => onSquareClick(sqName));
+      gridEl.insertBefore(div, svg);
+    }
+  }
+}
+
+function paintBoard(gridEl, chessObj, opts) {
+  opts = opts || {};
+  const board = chessObj.board(); // rank8..rank1, each a..h
+  gridEl.querySelectorAll('.sq').forEach(sqEl => {
+    sqEl.innerHTML = '';
+    sqEl.classList.remove('selected', 'lastmove');
+    const sq = sqEl.dataset.square;
+    const file = 'abcdefgh'.indexOf(sq[0]);
+    const rank = parseInt(sq[1], 10) - 1;
+    const piece = board[7 - rank][file];
+    if (piece) {
+      const span = document.createElement('span');
+      span.className = 'piece ' + (piece.color === 'w' ? 'white' : 'black');
+      span.textContent = PIECE_UNICODE[piece.color + piece.type];
+      sqEl.appendChild(span);
+    }
+    if (opts.selected === sq) sqEl.classList.add('selected');
+    if (opts.lastMove && (opts.lastMove.from === sq || opts.lastMove.to === sq)) sqEl.classList.add('lastmove');
+    if (opts.legalTargets && opts.legalTargets.indexOf(sq) !== -1) {
+      const marker = document.createElement('div');
+      marker.className = piece ? 'ring' : 'dot';
+      sqEl.appendChild(marker);
+    }
+  });
+}
+
+function squareCenter(sqName, orientation) {
+  const file = 'abcdefgh'.indexOf(sqName[0]);
+  const rank = parseInt(sqName[1], 10) - 1;
+  const col = orientation === 'w' ? file : 7 - file;
+  const row = orientation === 'w' ? 7 - rank : rank;
+  return { x: col * 50 + 25, y: row * 50 + 25 };
+}
+
+function drawArrow(svgEl, fromSq, toSq, orientation, color) {
+  svgEl.innerHTML = '';
+  if (!fromSq || !toSq) return;
+  const a = squareCenter(fromSq, orientation);
+  const b = squareCenter(toSq, orientation);
+  const ns = 'http://www.w3.org/2000/svg';
+  const markerId = 'arrowhead-' + Math.random().toString(36).slice(2);
+  const defs = document.createElementNS(ns, 'defs');
+  defs.innerHTML = '<marker id="' + markerId + '" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><polygon points="0,0 8,4 0,8" fill="' + color + '"/></marker>';
+  svgEl.appendChild(defs);
+  const line = document.createElementNS(ns, 'line');
+  line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
+  line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
+  line.setAttribute('stroke', color);
+  line.setAttribute('stroke-width', '7');
+  line.setAttribute('stroke-linecap', 'round');
+  line.setAttribute('opacity', '0.85');
+  line.setAttribute('marker-end', 'url(#' + markerId + ')');
+  svgEl.appendChild(line);
+}
+
+function updateEvalBarDom(barEl, labelEl, norm) {
+  const pawns = norm.whitePawns;
+  let pctWhite = 50 + 50 * Math.tanh(pawns / 4);
+  pctWhite = Math.max(3, Math.min(97, pctWhite));
+  const whiteDiv = barEl.querySelector('.eval-fill-white');
+  const blackDiv = barEl.querySelector('.eval-fill-black');
+  whiteDiv.style.flex = pctWhite;
+  blackDiv.style.flex = (100 - pctWhite);
+  labelEl.textContent = formatEval(norm);
+}
+
+/* =========================================================================
+   ANALYZER MODE
+   ========================================================================= */
+let analyzerResults = [];
+let analyzerOrientation = 'w';
+
+buildBoardGrid(document.getElementById('analyzerBoardGrid'), 'w', () => {}); // read-only board
+
+document.getElementById('analyzeBtn').addEventListener('click', runAnalysis);
+document.getElementById('analyzeBtn').disabled = true;
+
+async function runAnalysis() {
+  const errBox = document.getElementById('analyzeErrorBox');
+  errBox.innerHTML = '';
+  const pgnText = document.getElementById('pgnInput').value.trim();
+  if (!pgnText) {
+    errBox.innerHTML = '<div class="error-box">Paste a PGN before analyzing.</div>';
+    return;
+  }
+  if (!engineReady) {
+    errBox.innerHTML = '<div class="error-box">The engine is not ready yet. Wait a moment and try again.</div>';
+    return;
+  }
+
+  const loader = new Chess();
+  const okLoad = loader.load_pgn(pgnText, { sloppy: true });
+  if (!okLoad) {
+    errBox.innerHTML = '<div class="error-box">Could not parse that PGN. Check the move list and try again.</div>';
+    return;
+  }
+  const verboseHistory = loader.history({ verbose: true });
+  if (verboseHistory.length === 0) {
+    errBox.innerHTML = '<div class="error-box">The PGN contains no moves to analyze.</div>';
+    return;
+  }
+  const headers = loader.header();
+
+  const depth = clampDepth(document.getElementById('depthInput').value);
+  const progressBar = document.getElementById('analyzeProgress');
+  const progressText = document.getElementById('analyzeProgressText');
+  progressBar.style.display = 'block';
+  progressBar.value = 0;
+  document.getElementById('analyzeBtn').disabled = true;
+
+  const replay = new Chess();
+  const results = [];
+
+  try {
+    for (let i = 0; i < verboseHistory.length; i++) {
+      const mv = verboseHistory[i];
+      const moverColor = replay.turn();
+      const moveNumber = Math.floor(i / 2) + 1;
+
+      const before = await analyzePosition(replay.fen(), depth, 1);
+      const beforeNorm = normalizeScore(before.lines[0], moverColor);
+
+      const moveResult = replay.move({ from: mv.from, to: mv.to, promotion: mv.promotion || 'q' });
+      const sanMove = moveResult ? moveResult.san : mv.san;
+
+      const after = await analyzePosition(replay.fen(), depth, 1);
+      const afterNorm = normalizeScore(after.lines[0], replay.turn());
+
+      const beforePov = moverColor === 'w' ? beforeNorm.whitePawns : -beforeNorm.whitePawns;
+      const afterPov = moverColor === 'w' ? afterNorm.whitePawns : -afterNorm.whitePawns;
+      const drop = Math.max(0, beforePov - afterPov);
+      const classification = classifyDrop(drop);
+
+      const bestUci = before.bestmoveUci;
+
+      results.push({
+        moveNumber, player: moverColor === 'w' ? 'White' : 'Black',
+        san: sanMove, evalBefore: formatEval(beforeNorm), evalAfter: formatEval(afterNorm),
+        drop: drop.toFixed(2), classification,
+        bestMoveUci: bestUci, fenAfter: replay.fen(), moveUci: mv.from + mv.to + (mv.promotion || ''),
+      });
+
+      progressBar.value = Math.round(((i + 1) / verboseHistory.length) * 100);
+      progressText.textContent = (i + 1) + ' / ' + verboseHistory.length + ' moves';
+    }
+  } catch (err) {
+    errBox.innerHTML = '<div class="error-box">Analysis stopped: ' + escapeHtml(err.message) + '</div>';
+    document.getElementById('analyzeBtn').disabled = false;
+    progressBar.style.display = 'none';
+    return;
+  }
+
+  // Resolve best-move SAN for each entry using a scratch board.
+  const scratch = new Chess();
+  for (let i = 0; i < results.length; i++) {
+    const priorFen = i === 0 ? new Chess().fen() : results[i - 1].fenAfter;
+    scratch.load(priorFen);
+    let bestSan = '-';
+    const bu = results[i].bestMoveUci;
+    if (bu && bu.length >= 4 && bu !== '(none)') {
+      const mv = scratch.move({ from: bu.slice(0, 2), to: bu.slice(2, 4), promotion: bu.slice(4, 5) || 'q' });
+      if (mv) bestSan = mv.san;
+      scratch.load(priorFen);
+    }
+    results[i].bestMoveSan = bestSan;
+  }
+
+  analyzerResults = results;
+  progressBar.style.display = 'none';
+  document.getElementById('analyzeBtn').disabled = false;
+  renderAnalysis(headers, results);
+}
+
+function clampDepth(v) {
+  let d = parseInt(v, 10);
+  if (isNaN(d)) d = 14;
+  return Math.max(6, Math.min(20, d));
+}
+
+function renderAnalysis(headers, results) {
+  document.getElementById('analyzerResultsPanel').style.display = 'block';
+  const white = headers.White || 'White';
+  const black = headers.Black || 'Black';
+  document.getElementById('analyzerGameTitle').textContent = white + ' vs ' + black;
+
+  const counts = { 'Good/Excellent': 0, 'Inaccuracy': 0, 'Mistake': 0, 'Blunder': 0 };
+  results.forEach(r => counts[r.classification]++);
+
+  const cardsEl = document.getElementById('summaryCards');
+  cardsEl.innerHTML = ['Blunder', 'Mistake', 'Inaccuracy', 'Good/Excellent'].map(label =>
+    '<div class="summary-card"><div class="n" style="color:var(--' +
+    ({Blunder:'blunder', Mistake:'mistake', Inaccuracy:'inacc', 'Good/Excellent':'good'}[label]) +
+    ')">' + counts[label] + '</div><div class="l">' + label + '</div></div>'
+  ).join('');
+
+  const qEl = document.getElementById('qualityBars');
+  const total = results.length || 1;
+  qEl.innerHTML = ['Good/Excellent', 'Inaccuracy', 'Mistake', 'Blunder'].map(label => {
+    const pct = Math.round((counts[label] / total) * 100);
+    const color = { 'Good/Excellent': 'var(--good)', 'Inaccuracy': 'var(--inacc)', 'Mistake': 'var(--mistake)', 'Blunder': 'var(--blunder)' }[label];
+    return '<div style="margin-bottom:8px;"><div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--ivory-dim);"><span>' + label + '</span><span>' + counts[label] + '</span></div>' +
+      '<div style="background:#0a140f;border-radius:4px;height:8px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:' + color + ';"></div></div></div>';
+  }).join('');
+
+  const table = document.getElementById('resultsTable');
+  table.innerHTML = '<thead><tr><th>#</th><th>Player</th><th>Move</th><th>Before</th><th>After</th><th>Class.</th><th>Best move</th></tr></thead><tbody>' +
+    results.map((r, i) =>
+      '<tr data-idx="' + i + '"><td>' + r.moveNumber + '</td><td>' + r.player + '</td><td>' + escapeHtml(r.san) +
+      '</td><td>' + r.evalBefore + '</td><td>' + r.evalAfter + '</td><td><span class="tag ' + classTagClass(r.classification) + '">' + r.classification +
+      '</span></td><td>' + escapeHtml(r.bestMoveSan) + '</td></tr>'
+    ).join('') + '</tbody>';
+  table.querySelectorAll('tbody tr').forEach(tr => {
+    tr.addEventListener('click', () => {
+      document.getElementById('plySlider').value = tr.dataset.idx;
+      showPly(parseInt(tr.dataset.idx, 10));
+    });
+  });
+
+  // eval line chart
+  const chart = document.getElementById('evalChart');
+  const vals = results.map(r => {
+    const n = parseFloat(r.evalAfter.replace('#', '').replace('\u2212', '-'));
+    return isNaN(n) ? 0 : Math.max(-6, Math.min(6, n));
+  });
+  const w = 600, h = 160, pad = 8;
+  const midY = h / 2;
+  const pts = vals.map((v, i) => {
+    const x = pad + (i / Math.max(1, vals.length - 1)) * (w - 2 * pad);
+    const y = midY - (v / 6) * (midY - pad);
+    return x + ',' + y;
+  }).join(' ');
+  chart.innerHTML =
+    '<line x1="0" y1="' + midY + '" x2="' + w + '" y2="' + midY + '" stroke="#3a5946" stroke-width="1"/>' +
+    '<polyline points="' + pts + '" fill="none" stroke="#c9a24b" stroke-width="2"/>';
+
+  document.getElementById('plySlider').max = results.length - 1;
+  document.getElementById('plySlider').value = results.length - 1;
+  document.getElementById('plySlider').oninput = (e) => showPly(parseInt(e.target.value, 10));
+  showPly(results.length - 1);
+
+  document.getElementById('downloadCsvBtn').onclick = () => downloadCsv(results);
+}
+
+function showPly(idx) {
+  const r = analyzerResults[idx];
+  if (!r) return;
+  const board = new Chess(r.fenAfter);
+  buildBoardGrid(document.getElementById('analyzerBoardGrid'), analyzerOrientation, () => {});
+  const lastMove = { from: r.moveUci.slice(0, 2), to: r.moveUci.slice(2, 4) };
+  paintBoard(document.getElementById('analyzerBoardGrid'), board, { lastMove });
+  const norm = { isMate: r.evalAfter.indexOf('#') !== -1, whitePawns: parseFloat(r.evalAfter.replace('#', '').replace('\u2212','-')) || 0, mateIn: 0 };
+  updateEvalBarDom(document.getElementById('analyzerEvalBar'), document.getElementById('analyzerEvalLabel'), norm);
+  document.getElementById('analyzerMoveInfo').innerHTML =
+    '<p><b>Move ' + r.moveNumber + '</b> (' + r.player + '): <b>' + escapeHtml(r.san) + '</b></p>' +
+    '<p>Classification: <span class="tag ' + classTagClass(r.classification) + '">' + r.classification + '</span></p>' +
+    '<p>Eval before: ' + r.evalBefore + ' &nbsp;|&nbsp; Eval after: ' + r.evalAfter + '</p>' +
+    '<p>Best engine move: <b>' + escapeHtml(r.bestMoveSan) + '</b></p>';
+}
+
+function downloadCsv(results) {
+  const header = 'Move #,Player,Move,Eval Before,Eval After,Drop,Classification,Best Move\n';
+  const rows = results.map(r => [r.moveNumber, r.player, r.san, r.evalBefore, r.evalAfter, r.drop, r.classification, r.bestMoveSan]
+    .map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
+  const blob = new Blob([header + rows], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'chess_analysis.csv';
+  a.click();
+}
+
+/* =========================================================================
+   TRAINER MODE
+   ========================================================================= */
+let trainerGame = new Chess();
+let trainerOrientation = 'w';
+let trainerSelected = null;
+let trainerLastMove = null;
+let trainerBusy = false;
+
+const trainerGrid = document.getElementById('trainerBoardGrid');
+buildBoardGrid(trainerGrid, trainerOrientation, onTrainerSquareClick);
+redrawTrainer();
+
+function onTrainerSquareClick(sq) {
+  if (trainerBusy || trainerGame.game_over()) return;
+  const piece = trainerGame.get(sq);
+
+  if (trainerSelected === null) {
+    if (piece && piece.color === trainerGame.turn()) {
+      trainerSelected = sq;
+      redrawTrainer();
+    }
+    return;
+  }
+  if (sq === trainerSelected) {
+    trainerSelected = null;
+    redrawTrainer();
+    return;
+  }
+  if (piece && piece.color === trainerGame.turn()) {
+    trainerSelected = sq;
+    redrawTrainer();
+    return;
+  }
+
+  const legal = trainerGame.moves({ square: trainerSelected, verbose: true });
+  const match = legal.find(m => m.to === sq);
+  if (!match) {
+    trainerSelected = null;
+    redrawTrainer();
+    return;
+  }
+  makeTrainerMove(trainerSelected, sq, match.promotion ? 'q' : undefined);
+}
+
+async function makeTrainerMove(from, to, promotion) {
+  trainerBusy = true;
+  trainerSelected = null;
+  const feedbackEl = document.getElementById('trainerFeedback');
+  const preFen = trainerGame.fen();
+  const turnBefore = trainerGame.turn();
+  const depth = clampDepth(document.getElementById('depthInput').value);
+
+  let arrowFrom = null, arrowTo = null;
+  if (engineReady) {
+    try {
+      const result = await analyzePosition(preFen, depth, 3);
+      const userUci = from + to + (promotion || '');
+      const topUcis = result.lines.map(l => l.pv[0]);
+      const chosenMove = trainerGame.move({ from, to, promotion: promotion || 'q' });
+      const userSan = chosenMove ? chosenMove.san : (from + to);
+
+      const rankIdx = topUcis.indexOf(userUci);
+      if (rankIdx !== -1) {
+        feedbackEl.innerHTML = '<div class="feedback good">' + escapeHtml(userSan) + ' is a top engine choice (rank ' + (rankIdx + 1) + ' of ' + topUcis.length + ').</div>';
+      } else {
+        const bestUci = topUcis[0];
+        const scratch = new Chess(preFen);
+        const bestMove = scratch.move({ from: bestUci.slice(0, 2), to: bestUci.slice(2, 4), promotion: bestUci.slice(4, 5) || 'q' });
+        const bestSan = bestMove ? bestMove.san : bestUci;
+        feedbackEl.innerHTML = '<div class="feedback bad">' + escapeHtml(userSan) + ' was not in the top ' + topUcis.length + '. Engine prefers <b>' + escapeHtml(bestSan) + '</b>.</div>';
+        arrowFrom = bestUci.slice(0, 2); arrowTo = bestUci.slice(2, 4);
+      }
+    } catch (err) {
+      trainerGame.move({ from, to, promotion: promotion || 'q' });
+      feedbackEl.innerHTML = '<div class="feedback bad">Could not evaluate that move: ' + escapeHtml(err.message) + '</div>';
+    }
+  } else {
+    trainerGame.move({ from, to, promotion: promotion || 'q' });
+    feedbackEl.innerHTML = '<div class="feedback bad">Engine is not ready, move played without feedback.</div>';
+  }
+
+  trainerLastMove = { from, to };
+  updateTrainerMoveList();
+  redrawTrainer(arrowFrom, arrowTo);
+
+  if (engineReady && !trainerGame.game_over()) {
+    try {
+      const afterInfo = await analyzePosition(trainerGame.fen(), depth, 1);
+      const norm = normalizeScore(afterInfo.lines[0], trainerGame.turn());
+      updateEvalBarDom(document.getElementById('trainerEvalBar'), document.getElementById('trainerEvalLabel'), norm);
+    } catch (err) { /* non-fatal */ }
+  }
+  trainerBusy = false;
+}
+
+function redrawTrainer(arrowFrom, arrowTo) {
+  buildBoardGrid(trainerGrid, trainerOrientation, onTrainerSquareClick);
+  let legalTargets = [];
+  if (trainerSelected) {
+    legalTargets = trainerGame.moves({ square: trainerSelected, verbose: true }).map(m => m.to);
+  }
+  paintBoard(trainerGrid, trainerGame, { selected: trainerSelected, lastMove: trainerLastMove, legalTargets });
+  drawArrow(document.getElementById('trainerArrows'), arrowFrom, arrowTo, trainerOrientation, '#e35b5b');
+  if (trainerGame.game_over()) {
+    let msg = 'Game over.';
+    if (trainerGame.in_checkmate()) msg = 'Checkmate.';
+    else if (trainerGame.in_stalemate()) msg = 'Stalemate.';
+    else if (trainerGame.in_draw()) msg = 'Draw.';
+    document.getElementById('trainerFeedback').innerHTML = '<div class="feedback good">' + msg + '</div>';
+  }
+}
+
+function updateTrainerMoveList() {
+  const hist = trainerGame.history();
+  const el = document.getElementById('trainerMoveList');
+  if (hist.length === 0) { el.textContent = 'No moves yet.'; return; }
+  let out = '';
+  for (let i = 0; i < hist.length; i += 2) {
+    out += (i / 2 + 1) + '. ' + hist[i] + (hist[i + 1] ? ' ' + hist[i + 1] + '  ' : '');
+  }
+  el.textContent = out;
+}
+
+document.getElementById('newGameBtn').addEventListener('click', () => {
+  const fen = document.getElementById('fenInput').value.trim();
+  try {
+    trainerGame = fen ? new Chess(fen) : new Chess();
+  } catch (e) {
+    trainerGame = new Chess();
+  }
+  trainerSelected = null;
+  trainerLastMove = null;
+  document.getElementById('trainerFeedback').innerHTML = '';
+  updateTrainerMoveList();
+  redrawTrainer();
+});
+
+document.getElementById('undoBtn').addEventListener('click', () => {
+  trainerGame.undo();
+  trainerLastMove = null;
+  updateTrainerMoveList();
+  redrawTrainer();
+});
+
+document.getElementById('flipBtn').addEventListener('click', () => {
+  trainerOrientation = trainerOrientation === 'w' ? 'b' : 'w';
+  redrawTrainer();
+});
+
+document.getElementById('downloadPgnBtn').addEventListener('click', () => {
+  const pgn = trainerGame.pgn();
+  const blob = new Blob([pgn || '*'], { type: 'application/x-chess-pgn' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'trainer_game.pgn';
+  a.click();
+});
+
+/* =========================================================================
+   TABS
+   ========================================================================= */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    document.getElementById('tab-analyzer').style.display = tab === 'analyzer' ? 'block' : 'none';
+    document.getElementById('tab-trainer').style.display = tab === 'trainer' ? 'block' : 'none';
+  });
+});
+
+initEngine();
+</script>
+</body>
+</html>
