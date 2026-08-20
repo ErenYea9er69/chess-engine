@@ -24,6 +24,7 @@ interface PlayModeProps {
   difficulty: Difficulty;
   timeControl: string;
   colorChoice: PieceColor;
+  onRequestReview?: (pgn: string) => void;
 }
 
 type StatusKind = 'good' | 'danger';
@@ -33,7 +34,7 @@ interface Feedback {
 }
 
 const PlayMode = forwardRef<PlayModeHandle, PlayModeProps>(function PlayMode(
-  { engine, soundOn, difficulty, timeControl, colorChoice },
+  { engine, soundOn, difficulty, timeControl, colorChoice, onRequestReview },
   ref
 ) {
   const gameRef = useRef(new Chess());
@@ -310,9 +311,14 @@ const PlayMode = forwardRef<PlayModeHandle, PlayModeProps>(function PlayMode(
 
   return (
     <section className="mode active">
-      <div className="status-bar">
+      <div className={'status-bar' + (busy ? ' busy' : '')}>
         <span className={'status-dot ' + status.kind} />
         <span>{status.text}</span>
+        {busy && (
+          <span className="thinking-dots" aria-hidden="true">
+            <i /><i /><i />
+          </span>
+        )}
       </div>
 
       <div className="play-layout">
@@ -350,6 +356,9 @@ const PlayMode = forwardRef<PlayModeHandle, PlayModeProps>(function PlayMode(
             <h3>Game options</h3>
             <div className="btn-row">
               <button className="ghost" onClick={downloadPgn}>Download PGN</button>
+              {over && onRequestReview && (
+                <button className="action" onClick={() => onRequestReview(game.pgn())}>Review this game</button>
+              )}
             </div>
           </div>
         </div>

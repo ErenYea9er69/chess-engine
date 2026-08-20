@@ -12,10 +12,14 @@ export default function App() {
   const [mode, setMode] = useState<Mode>('play');
   const [themeIndex, setThemeIndex] = useState(0);
   const [soundOn, setSoundOn] = useState(true);
+  const [animationsOn, setAnimationsOn] = useState(true);
 
   const [difficulty, setDifficulty] = useState<Difficulty>('easy');
   const [timeControl, setTimeControl] = useState('none');
   const [colorChoice, setColorChoice] = useState<PieceColor>('w');
+
+  const [reviewPgn, setReviewPgn] = useState<{ pgn: string; token: number } | null>(null);
+  const reviewTokenRef = useRef(0);
 
   const playModeRef = useRef<PlayModeHandle>(null);
 
@@ -25,8 +29,14 @@ export default function App() {
     document.documentElement.style.setProperty('--dark-sq', theme.dark);
   }, [themeIndex]);
 
+  const requestReview = (pgn: string) => {
+    reviewTokenRef.current += 1;
+    setReviewPgn({ pgn, token: reviewTokenRef.current });
+    setMode('analyze');
+  };
+
   return (
-    <div className="app">
+    <div className={'app' + (animationsOn ? '' : ' no-anim')}>
       <Sidebar
         mode={mode}
         onModeChange={setMode}
@@ -34,6 +44,8 @@ export default function App() {
         onThemeChange={setThemeIndex}
         soundOn={soundOn}
         onSoundChange={setSoundOn}
+        animationsOn={animationsOn}
+        onAnimationsChange={setAnimationsOn}
       >
         {mode === 'play' && (
           <PlayControls
@@ -55,10 +67,18 @@ export default function App() {
         {engine.error && <div className="feedback bad" style={{ marginBottom: 14 }}>{engine.error}</div>}
         {/* Both modes stay mounted so a game in progress isn't lost when switching tabs. */}
         <div style={{ display: mode === 'play' ? 'block' : 'none' }} data-mode-panel="play">
-          <PlayMode ref={playModeRef} engine={engine} soundOn={soundOn} difficulty={difficulty} timeControl={timeControl} colorChoice={colorChoice} />
+          <PlayMode
+            ref={playModeRef}
+            engine={engine}
+            soundOn={soundOn}
+            difficulty={difficulty}
+            timeControl={timeControl}
+            colorChoice={colorChoice}
+            onRequestReview={requestReview}
+          />
         </div>
         <div style={{ display: mode === 'analyze' ? 'block' : 'none' }} data-mode-panel="analyze">
-          <AnalyzeMode engine={engine} />
+          <AnalyzeMode engine={engine} initialPgn={reviewPgn} />
         </div>
       </main>
     </div>

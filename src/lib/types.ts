@@ -16,3 +16,16 @@ export interface EngineEval {
   type: 'cp' | 'mate';
   value: number; // always from White's perspective
 }
+
+export type MoveClass =
+  | 'brilliant'
+  | 'great'
+  | 'best'
+  | 'excellent'
+  | 'good'
+  | 'inaccuracy'
+  | 'mistake'
+  | 'miss'
+  | 'blunder';
+
+export type GamePhase = 'opening' | 'middlegame' | 'endgame';

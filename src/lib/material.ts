@@ -16,6 +16,21 @@ export function materialCounts(game: Chess): Counts {
   return counts;
 }
 
+/** Sum of non-pawn, non-king piece values on the board, both sides combined.
+ *  Used as a rough signal for when a game has moved from middlegame to endgame. */
+export function nonPawnMaterial(game: Chess): number {
+  const board = game.board();
+  let total = 0;
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const p = board[r][c];
+      if (!p || p.type === 'p' || p.type === 'k') continue;
+      total += PIECE_VALUES[p.type];
+    }
+  }
+  return total;
+}
+
 export function materialScore(game: Chess): number {
   const board = game.board();
   let score = 0;
