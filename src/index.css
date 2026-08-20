@@ -217,8 +217,13 @@ textarea{
 
 /* ---------- game review ---------- */
 .game-review .gr-pending{ color:var(--ivory-dim); font-weight:400; font-size:0.78em; }
-.gr-players{ display:flex; justify-content:space-between; font-size:0.85rem; font-weight:600; color:var(--ivory); margin-top:2px; }
-.gr-player.right{ text-align:right; }
+.gr-players{ display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; font-weight:600; color:var(--ivory); margin-top:2px; }
+.gr-player{ display:flex; align-items:center; gap:8px; }
+.gr-player.right{ text-align:right; flex-direction:row-reverse; }
+.gr-avatar{
+  width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:0.68rem; font-weight:700; flex-shrink:0; letter-spacing:0.02em;
+}
 .gr-accuracy-row{ display:flex; align-items:center; justify-content:space-between; margin:8px 0 14px; }
 .gr-accuracy-pill{
   font-family: ui-monospace, monospace; font-size:1.2rem; font-weight:700; color:var(--ivory);
@@ -244,10 +249,18 @@ textarea{
   justify-self:center; font-family: ui-monospace, monospace; font-weight:700; font-size:0.76rem;
   width:32px; height:22px; display:flex; align-items:center; justify-content:center; border-radius:6px;
 }
-.gr-phase-badge.tier-high{ background: rgba(76,175,109,0.22); color:#a6e3ba; }
-.gr-phase-badge.tier-mid{ background: rgba(217,178,60,0.22); color:#e6cf88; }
-.gr-phase-badge.tier-low{ background: rgba(227,91,91,0.22); color:#f3b3b3; }
+.gr-phase-badge.tier-excellent{ background: rgba(76,175,109,0.22); color:#a6e3ba; }
+.gr-phase-badge.tier-solid{ background: rgba(76,175,109,0.14); color:#8fd1a6; }
+.gr-phase-badge.tier-shaky{ background: rgba(217,178,60,0.22); color:#e6cf88; }
+.gr-phase-badge.tier-poor{ background: rgba(227,91,91,0.22); color:#f3b3b3; }
 .gr-phase-badge.tier-none{ background: rgba(255,255,255,0.05); color:var(--ivory-dim); }
+
+.gr-rating-row{ display:flex; align-items:center; justify-content:space-between; margin:14px 0 4px; }
+.gr-rating-pill{
+  font-family: ui-monospace, monospace; font-size:1.05rem; font-weight:700; color:var(--ivory);
+  background:#0f1c15; border:1px solid var(--line); border-radius:8px; padding:5px 12px; min-width:56px; text-align:center;
+}
+.gr-rating-note{ margin:6px 0 0; font-size:0.72rem; line-height:1.4; }
 
 /* ---------- promotion modal ---------- */
 .modal-backdrop{

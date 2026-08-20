@@ -1,24 +1,27 @@
 import { useState } from 'react';
-import { MOVE_CLASS_META } from '../lib/analysis';
-import type { GamePhase, MoveClass } from '../lib/types';
+import { MOVE_CLASS_META, REVIEW_CATEGORY_LABEL, REVIEW_TIER_SYMBOL, tierFromWinPercentLoss } from '../lib/analysis';
+import type { MoveClass } from '../lib/types';
+import type { ReviewCategory } from '../lib/analysis';
 
 const PRIMARY_ROWS: MoveClass[] = ['brilliant', 'great', 'best', 'mistake', 'miss', 'blunder'];
 const SECONDARY_ROWS: MoveClass[] = ['excellent', 'good', 'inaccuracy'];
 
-export interface PhaseRow {
-  phase: GamePhase;
-  white: number | null;
-  black: number | null;
+export interface CategoryRow {
+  category: ReviewCategory;
+  whiteAvgLoss: number | null;
+  blackAvgLoss: number | null;
 }
 
 interface GameReviewProps {
   whiteName: string;
   blackName: string;
+  whiteRating: number | null;
+  blackRating: number | null;
   whiteAccuracy: number | null;
   blackAccuracy: number | null;
   whiteCounts: Record<MoveClass, number>;
   blackCounts: Record<MoveClass, number>;
-  phases: PhaseRow[];
+  categories: CategoryRow[];
   pending: boolean;
 }
 
@@ -26,27 +29,38 @@ function AccuracyPill({ value }: { value: number | null }) {
   return <div className="gr-accuracy-pill">{value === null ? '\u2014' : value.toFixed(1)}</div>;
 }
 
-function phaseTier(value: number | null): 'high' | 'mid' | 'low' | 'none' {
-  if (value === null) return 'none';
-  if (value >= 85) return 'high';
-  if (value >= 65) return 'mid';
-  return 'low';
+function initialsFor(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '?';
+  return trimmed.slice(0, 2).toUpperCase();
 }
 
-const PHASE_LABEL: Record<GamePhase, string> = {
-  opening: 'Opening',
-  middlegame: 'Middlegame',
-  endgame: 'Endgame',
-};
+// Deterministic color so the same name always gets the same avatar tint.
+function hueFor(name: string): number {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) % 360;
+  return hash;
+}
+
+function Avatar({ name }: { name: string }) {
+  const hue = hueFor(name || '?');
+  return (
+    <div className="gr-avatar" style={{ background: `hsl(${hue} 45% 28%)`, color: `hsl(${hue} 70% 88%)` }}>
+      {initialsFor(name)}
+    </div>
+  );
+}
 
 export default function GameReview({
   whiteName,
   blackName,
+  whiteRating,
+  blackRating,
   whiteAccuracy,
   blackAccuracy,
   whiteCounts,
   blackCounts,
-  phases,
+  categories,
   pending,
 }: GameReviewProps) {
   const [expanded, setExpanded] = useState(false);
@@ -57,8 +71,14 @@ export default function GameReview({
       <h3>Game review{pending && <span className="gr-pending"> \u00b7 evaluating\u2026</span>}</h3>
 
       <div className="gr-players">
-        <div className="gr-player">{whiteName}</div>
-        <div className="gr-player right">{blackName}</div>
+        <div className="gr-player">
+          <Avatar name={whiteName} />
+          <span>{whiteName}</span>
+        </div>
+        <div className="gr-player right">
+          <span>{blackName}</span>
+          <Avatar name={blackName} />
+        </div>
       </div>
       <div className="gr-accuracy-row">
         <AccuracyPill value={whiteAccuracy} />
@@ -89,19 +109,33 @@ export default function GameReview({
         <span className={'chevron' + (expanded ? ' up' : '')}>&#9662;</span>
       </button>
 
-      {phases.length > 0 && (
+      <div className="gr-rating-row">
+        <div className="gr-rating-pill">{whiteRating === null ? '\u2014' : whiteRating}</div>
+        <span className="gr-accuracy-label">Game rating</span>
+        <div className="gr-rating-pill">{blackRating === null ? '\u2014' : blackRating}</div>
+      </div>
+      <p className="footnote gr-rating-note">
+        Estimated from move quality and each player's PGN Elo. Chess.com hasn't published its own formula, so this
+        is an approximation, not a match to their number.
+      </p>
+
+      {categories.length > 0 && (
         <div className="gr-phases">
-          {phases.map((row) => (
-            <div className="gr-phase-row" key={row.phase}>
-              <span className={'gr-phase-badge tier-' + phaseTier(row.white)}>
-                {row.white === null ? '\u2014' : Math.round(row.white)}
-              </span>
-              <span className="gr-phase-name">{PHASE_LABEL[row.phase]}</span>
-              <span className={'gr-phase-badge tier-' + phaseTier(row.black)}>
-                {row.black === null ? '\u2014' : Math.round(row.black)}
-              </span>
-            </div>
-          ))}
+          {categories.map((row) => {
+            const whiteTier = tierFromWinPercentLoss(row.whiteAvgLoss);
+            const blackTier = tierFromWinPercentLoss(row.blackAvgLoss);
+            return (
+              <div className="gr-phase-row" key={row.category}>
+                <span className={'gr-phase-badge tier-' + whiteTier} title={whiteTier}>
+                  {REVIEW_TIER_SYMBOL[whiteTier]}
+                </span>
+                <span className="gr-phase-name">{REVIEW_CATEGORY_LABEL[row.category]}</span>
+                <span className={'gr-phase-badge tier-' + blackTier} title={blackTier}>
+                  {REVIEW_TIER_SYMBOL[blackTier]}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

@@ -3,11 +3,19 @@ import { Chess } from 'chess.js';
 import Board from '../components/Board';
 import MaterialBar from '../components/MaterialBar';
 import MoveList from '../components/MoveList';
-import GameReview, { type PhaseRow } from '../components/GameReview';
-import { accuracyFromLosses, classifyMove, emptyClassCounts, phaseForPly } from '../lib/analysis';
+import GameReview, { type CategoryRow } from '../components/GameReview';
+import {
+  accuracyFromLosses,
+  classifyMove,
+  emptyClassCounts,
+  estimateGameRating,
+  reviewCategoryForMove,
+  winPercentLoss,
+  type ReviewCategory,
+} from '../lib/analysis';
 import { nonPawnMaterial } from '../lib/material';
 import type { UseStockfishReturn } from '../engine/useStockfish';
-import type { GamePhase, LastMove, MoveClass, PieceColor } from '../lib/types';
+import type { LastMove, MoveClass, PieceColor } from '../lib/types';
 
 interface AnalyzeModeProps {
   engine: UseStockfishReturn;
@@ -20,6 +28,7 @@ interface PlyState {
   san: string | null;
   piece: string | null;
   captured: string | null;
+  isCheck: boolean;
   nonPawnMaterial: number;
 }
 
@@ -35,6 +44,7 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
   const [orientation, setOrientation] = useState<PieceColor>('w');
   const [evals, setEvals] = useState<(number | null)[]>([]);
   const [players, setPlayers] = useState<{ white: string; black: string }>({ white: 'White', black: 'Black' });
+  const [elos, setElos] = useState<{ white: number | null; black: number | null }>({ white: null, black: null });
   const evalTokenRef = useRef(0);
   const lastAppliedReviewToken = useRef<number | null>(null);
 
@@ -85,7 +95,15 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
 
       const walker = new Chess();
       const freshStates: PlyState[] = [
-        { fen: walker.fen(), lastMove: null, san: null, piece: null, captured: null, nonPawnMaterial: nonPawnMaterial(walker) },
+        {
+          fen: walker.fen(),
+          lastMove: null,
+          san: null,
+          piece: null,
+          captured: null,
+          isCheck: false,
+          nonPawnMaterial: nonPawnMaterial(walker),
+        },
       ];
       for (const san of moves) {
         const m = walker.move(san);
@@ -95,10 +113,14 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
           san,
           piece: m?.piece ?? null,
           captured: m?.captured ?? null,
+          isCheck: walker.isCheck(),
           nonPawnMaterial: nonPawnMaterial(walker),
         });
       }
 
+      const whiteElo = headers.WhiteElo ? parseInt(headers.WhiteElo, 10) : NaN;
+      const blackElo = headers.BlackElo ? parseInt(headers.BlackElo, 10) : NaN;
+      setElos({ white: Number.isFinite(whiteElo) ? whiteElo : null, black: Number.isFinite(blackElo) ? blackElo : null });
       setPlayers({ white: headers.White || 'White', black: headers.Black || 'Black' });
       setStates(freshStates);
       setPly(freshStates.length - 1);
@@ -159,9 +181,10 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
     const blackCounts = emptyClassCounts();
     const whiteLosses: number[] = [];
     const blackLosses: number[] = [];
-    const phaseLosses: Record<GamePhase, { w: number[]; b: number[] }> = {
+    const categoryLosses: Record<ReviewCategory, { w: number[]; b: number[] }> = {
       opening: { w: [], b: [] },
-      middlegame: { w: [], b: [] },
+      tactics: { w: [], b: [] },
+      strategy: { w: [], b: [] },
       endgame: { w: [], b: [] },
     };
     const totalPlies = sanHistory.length;
@@ -172,7 +195,14 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
       const before = evals[idx];
       const after = evals[idx + 1];
       if (cls === null || before === null || after === null) return;
-      const loss = Math.max(0, (mover === 'w' ? before : -before) - (mover === 'w' ? after : -after));
+      // Win%-based loss: what accuracy and the phase grades are built from.
+      const loss = winPercentLoss({
+        mover,
+        evalBefore: before,
+        evalAfter: after,
+        piece: states[ply1]?.piece || '',
+        captured: states[ply1]?.captured || undefined,
+      });
       if (mover === 'w') {
         whiteCounts[cls] += 1;
         whiteLosses.push(loss);
@@ -180,26 +210,44 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
         blackCounts[cls] += 1;
         blackLosses.push(loss);
       }
-      const phase = phaseForPly(ply1, totalPlies, states[ply1]?.nonPawnMaterial ?? 0);
-      phaseLosses[phase][mover === 'w' ? 'w' : 'b'].push(loss);
+      const isTacticalMoment =
+        Boolean(states[ply1]?.captured) ||
+        Boolean(states[ply1]?.isCheck) ||
+        cls === 'best' ||
+        cls === 'great' ||
+        cls === 'brilliant' ||
+        cls === 'mistake' ||
+        cls === 'blunder' ||
+        cls === 'miss';
+      const category = reviewCategoryForMove(ply1, totalPlies, states[ply1]?.nonPawnMaterial ?? 0, isTacticalMoment);
+      categoryLosses[category][mover === 'w' ? 'w' : 'b'].push(loss);
     });
 
-    const phases: PhaseRow[] = (['opening', 'middlegame', 'endgame'] as GamePhase[])
-      .filter((p) => phaseLosses[p].w.length > 0 || phaseLosses[p].b.length > 0)
-      .map((phase) => ({
-        phase,
-        white: accuracyFromLosses(phaseLosses[phase].w),
-        black: accuracyFromLosses(phaseLosses[phase].b),
+    const categories: CategoryRow[] = (['opening', 'tactics', 'strategy', 'endgame'] as ReviewCategory[])
+      .filter((c) => categoryLosses[c].w.length > 0 || categoryLosses[c].b.length > 0)
+      .map((category) => ({
+        category,
+        whiteAvgLoss: categoryLosses[category].w.length
+          ? categoryLosses[category].w.reduce((a, b) => a + b, 0) / categoryLosses[category].w.length
+          : null,
+        blackAvgLoss: categoryLosses[category].b.length
+          ? categoryLosses[category].b.reduce((a, b) => a + b, 0) / categoryLosses[category].b.length
+          : null,
       }));
+
+    const whiteAccuracy = accuracyFromLosses(whiteLosses);
+    const blackAccuracy = accuracyFromLosses(blackLosses);
 
     return {
       whiteCounts,
       blackCounts,
-      whiteAccuracy: accuracyFromLosses(whiteLosses),
-      blackAccuracy: accuracyFromLosses(blackLosses),
-      phases,
+      whiteAccuracy,
+      blackAccuracy,
+      categories,
+      whiteRating: estimateGameRating(elos.white, whiteAccuracy),
+      blackRating: estimateGameRating(elos.black, blackAccuracy),
     };
-  }, [classifications, evals, sanHistory.length, states]);
+  }, [classifications, elos, evals, sanHistory.length, states]);
 
   const pendingEval = evals.some((v) => v === null);
 
@@ -257,11 +305,13 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
               <GameReview
                 whiteName={players.white}
                 blackName={players.black}
+                whiteRating={review.whiteRating}
+                blackRating={review.blackRating}
                 whiteAccuracy={review.whiteAccuracy}
                 blackAccuracy={review.blackAccuracy}
                 whiteCounts={review.whiteCounts}
                 blackCounts={review.blackCounts}
-                phases={review.phases}
+                categories={review.categories}
                 pending={pendingEval}
               />
               <div className="panel">
