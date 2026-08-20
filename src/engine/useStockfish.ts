@@ -133,7 +133,61 @@ export function useStockfish() {
     [enqueue, getWorker]
   );
 
-  return { ready, error, bestMove, evaluate };
+  /**
+   * Same idea as evaluate(), but also asks Stockfish for its *runner-up*
+   * line (MultiPV 2) and returns the engine's own best-move UCI alongside
+   * the eval. Both matter for classifyMove: bestUci lets it tell "matched
+   * the engine's actual top choice" apart from "just happened to lose ~0
+   * win% due to eval noise", and secondBestEval lets it tell a genuinely
+   * forced position (Great/Miss territory) apart from one with several
+   * roughly-equal options (ordinary Best/Excellent). Costs a bit more
+   * engine time per position than a plain MultiPV-1 search since Stockfish
+   * has to keep a second line alive throughout the search.
+   */
+  const evaluateWithTop2 = useCallback(
+    (fen: string, depth = 12): Promise<{ best: EngineEval | null; secondBest: EngineEval | null; bestUci: string | null }> => {
+      return enqueue(
+        () =>
+          new Promise<{ best: EngineEval | null; secondBest: EngineEval | null; bestUci: string | null }>((resolve) => {
+            const worker = getWorker();
+            if (!worker) return resolve({ best: null, secondBest: null, bestUci: null });
+            let best: EngineEval | null = null;
+            let secondBest: EngineEval | null = null;
+            const sideToMove = fen.split(' ')[1] === 'b' ? -1 : 1;
+            const onMessage = (e: MessageEvent) => {
+              if (typeof e.data !== 'string') return;
+              if (e.data.startsWith('info') && e.data.includes(' score ')) {
+                const scoreMatch = e.data.match(/score (cp|mate) (-?\d+)/);
+                const pvMatch = e.data.match(/multipv (\d+)/);
+                const pvIndex = pvMatch ? parseInt(pvMatch[1], 10) : 1;
+                if (scoreMatch) {
+                  const parsed: EngineEval = {
+                    type: scoreMatch[1] as 'cp' | 'mate',
+                    value: sideToMove * parseInt(scoreMatch[2], 10),
+                  };
+                  if (pvIndex === 1) best = parsed;
+                  else if (pvIndex === 2) secondBest = parsed;
+                }
+              }
+              if (e.data.startsWith('bestmove')) {
+                worker.removeEventListener('message', onMessage);
+                const uci = e.data.split(' ')[1];
+                worker.postMessage('setoption name MultiPV value 1'); // reset for other callers (bestMove/evaluate)
+                resolve({ best, secondBest, bestUci: uci && uci !== '(none)' ? uci : null });
+              }
+            };
+            worker.addEventListener('message', onMessage);
+            worker.postMessage('setoption name Skill Level value 20');
+            worker.postMessage('setoption name MultiPV value 2');
+            worker.postMessage('position fen ' + fen);
+            worker.postMessage('go depth ' + depth);
+          })
+      );
+    },
+    [enqueue, getWorker]
+  );
+
+  return { ready, error, bestMove, evaluate, evaluateWithTop2 };
 }
 
 export type UseStockfishReturn = ReturnType<typeof useStockfish>;

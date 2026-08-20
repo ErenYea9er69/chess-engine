@@ -4,7 +4,7 @@ import type { MoveClass } from '../lib/types';
 import type { ReviewCategory } from '../lib/analysis';
 
 const PRIMARY_ROWS: MoveClass[] = ['brilliant', 'great', 'best', 'mistake', 'miss', 'blunder'];
-const SECONDARY_ROWS: MoveClass[] = ['excellent', 'good', 'inaccuracy'];
+const SECONDARY_ROWS: MoveClass[] = ['excellent', 'good', 'book', 'inaccuracy'];
 
 export interface CategoryRow {
   category: ReviewCategory;

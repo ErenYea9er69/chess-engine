@@ -23,6 +23,7 @@ export type MoveClass =
   | 'best'
   | 'excellent'
   | 'good'
+  | 'book'
   | 'inaccuracy'
   | 'mistake'
   | 'miss'

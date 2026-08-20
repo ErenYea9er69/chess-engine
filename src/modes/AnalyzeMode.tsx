@@ -13,6 +13,7 @@ import {
   winPercentLoss,
   type ReviewCategory,
 } from '../lib/analysis';
+import { bookFlagsForGame } from '../lib/openingBook';
 import { nonPawnMaterial } from '../lib/material';
 import type { UseStockfishReturn } from '../engine/useStockfish';
 import type { LastMove, MoveClass, PieceColor } from '../lib/types';
@@ -28,19 +29,31 @@ interface PlyState {
   san: string | null;
   piece: string | null;
   captured: string | null;
+  promotion: string | null;
   isCheck: boolean;
+  isCheckmate: boolean;
   nonPawnMaterial: number;
 }
 
+/** One position's worth of engine output: the top line, the runner-up line
+ *  (for Great/Miss "only move" detection), and the engine's own best-move
+ *  UCI (for a precise "did they literally play the top choice" check). */
+interface PlyEngineInfo {
+  eval: number | null; // pawns, White POV
+  secondBestEval: number | null; // pawns, White POV
+  bestUci: string | null;
+}
+
 // Search depth for every position in the game. Higher finds more of the tactics a
-// shallow search misses, which matters a lot here: a move that looks fine at depth 12
-// can have a refutation only a deeper search sees, so low depth systematically
-// undercounts mistakes and blunders and overstates accuracy. 16 is a compromise
-// between staying close to chess.com's own (much deeper, cloud-assisted) analysis and
-// keeping a full game reviewable in the browser on the single-threaded lite build
-// shipped in public/engine. Raise it further if you want a closer match and can wait
-// longer per game.
-const EVAL_DEPTH = 16;
+// shallow search misses, which matters a lot here: a move that looks fine at low
+// depth can have a refutation only a deeper search sees, so low depth systematically
+// undercounts mistakes and blunders and overstates accuracy. Chess.com's own review
+// runs on deeper, often cloud/multi-threaded analysis than a single-threaded WASM
+// build can match move-for-move in a browser tab; 18 is a compromise that stays
+// closer to that than the previous default of 16, while keeping a full game
+// reviewable without too long a wait. Raise it further (or swap in a multi-threaded
+// Stockfish build with the right cross-origin-isolation headers) for a closer match.
+const EVAL_DEPTH = 18;
 const MATE_SCORE = 20; // pawns-equivalent used to cap the chart when a mate is found
 
 export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
@@ -50,11 +63,15 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
   const [states, setStates] = useState<PlyState[]>([]);
   const [ply, setPly] = useState(0);
   const [orientation, setOrientation] = useState<PieceColor>('w');
-  const [evals, setEvals] = useState<(number | null)[]>([]);
+  const [engineInfos, setEngineInfos] = useState<(PlyEngineInfo | null)[]>([]);
   const [players, setPlayers] = useState<{ white: string; black: string }>({ white: 'White', black: 'Black' });
   const [elos, setElos] = useState<{ white: number | null; black: number | null }>({ white: null, black: null });
   const evalTokenRef = useRef(0);
   const lastAppliedReviewToken = useRef<number | null>(null);
+
+  // Flat pawns-value array (White POV), derived from engineInfos, for the chart
+  // and anything else that only cares about the top line's eval.
+  const evals: (number | null)[] = useMemo(() => engineInfos.map((info) => info?.eval ?? null), [engineInfos]);
 
   const reviewGame = useMemo(() => {
     const g = new Chess();
@@ -62,16 +79,25 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
     return g;
   }, [states, ply]);
 
+  const toPawns = (result: { type: 'cp' | 'mate'; value: number } | null): number | null => {
+    if (!result) return null;
+    return result.type === 'mate' ? Math.sign(result.value || 1) * MATE_SCORE : result.value / 100;
+  };
+
   const computeEvals = useCallback(
     async (freshStates: PlyState[]) => {
       const token = ++evalTokenRef.current;
       for (let i = 0; i < freshStates.length; i++) {
-        const result = await engine.evaluate(freshStates[i].fen, EVAL_DEPTH);
+        const result = await engine.evaluateWithTop2(freshStates[i].fen, EVAL_DEPTH);
         if (token !== evalTokenRef.current) return; // a newer PGN was loaded, abandon this run
-        const value = result ? (result.type === 'mate' ? Math.sign(result.value || 1) * MATE_SCORE : result.value / 100) : 0;
-        setEvals((prev) => {
+        const info: PlyEngineInfo = {
+          eval: toPawns(result.best) ?? 0,
+          secondBestEval: toPawns(result.secondBest),
+          bestUci: result.bestUci,
+        };
+        setEngineInfos((prev) => {
           const next = prev.slice();
-          next[i] = value;
+          next[i] = info;
           return next;
         });
       }
@@ -109,7 +135,9 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
           san: null,
           piece: null,
           captured: null,
+          promotion: null,
           isCheck: false,
+          isCheckmate: false,
           nonPawnMaterial: nonPawnMaterial(walker),
         },
       ];
@@ -121,7 +149,9 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
           san,
           piece: m?.piece ?? null,
           captured: m?.captured ?? null,
+          promotion: m?.promotion ?? null,
           isCheck: walker.isCheck(),
+          isCheckmate: walker.isCheckmate(),
           nonPawnMaterial: nonPawnMaterial(walker),
         });
       }
@@ -133,7 +163,7 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
       setStates(freshStates);
       setPly(freshStates.length - 1);
       setLoaded(true);
-      setEvals(new Array(freshStates.length).fill(null));
+      setEngineInfos(new Array(freshStates.length).fill(null));
       void computeEvals(freshStates);
     },
     [computeEvals]
@@ -160,10 +190,20 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
 
   const sanHistory = states.slice(1).map((s) => s.san as string);
 
+  // A contiguous run from the start where the position matches known opening
+  // theory (see openingBook.ts). Those plies are graded 'book' below instead
+  // of being run through the engine-based ladder at all, the same way
+  // chess.com's report never flags a theoretical move as an inaccuracy.
+  const bookFlags = useMemo(() => bookFlagsForGame(states.map((s) => s.fen)), [states]);
+
   // --- move classification & game review, recomputed whenever a new eval lands ---
   const classifications: (MoveClass | null)[] = useMemo(() => {
     const out: (MoveClass | null)[] = [];
     for (let i = 1; i < states.length; i++) {
+      if (bookFlags[i]) {
+        out.push('book');
+        continue;
+      }
       const before = evals[i - 1];
       const after = evals[i];
       if (before === null || after === null) {
@@ -171,6 +211,9 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
         continue;
       }
       const mover: PieceColor = i % 2 === 1 ? 'w' : 'b';
+      const lastMove = states[i].lastMove;
+      const playedUci = lastMove ? lastMove.from + lastMove.to + (states[i].promotion || '') : undefined;
+      const engineBefore = engineInfos[i - 1];
       out.push(
         classifyMove({
           mover,
@@ -178,11 +221,15 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
           evalAfter: after,
           piece: states[i].piece || '',
           captured: states[i].captured || undefined,
+          isCheckmate: states[i].isCheckmate,
+          playedUci,
+          bestUci: engineBefore?.bestUci ?? undefined,
+          secondBestEvalBefore: engineBefore?.secondBestEval ?? null,
         })
       );
     }
     return out;
-  }, [states, evals]);
+  }, [states, evals, engineInfos, bookFlags]);
 
   const review = useMemo(() => {
     const whiteCounts = emptyClassCounts();
@@ -200,9 +247,18 @@ export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
     classifications.forEach((cls, idx) => {
       const ply1 = idx + 1;
       const mover: PieceColor = ply1 % 2 === 1 ? 'w' : 'b';
+      if (cls === null) return;
+      if (cls === 'book') {
+        // Book moves are recognized, not graded: no loss pushed into either
+        // the accuracy pool or a phase category, matching how chess.com
+        // excludes opening theory from Game Review's grading entirely.
+        if (mover === 'w') whiteCounts.book += 1;
+        else blackCounts.book += 1;
+        return;
+      }
       const before = evals[idx];
       const after = evals[idx + 1];
-      if (cls === null || before === null || after === null) return;
+      if (before === null || after === null) return;
       // Win%-based loss: what accuracy and the phase grades are built from.
       const loss = winPercentLoss({
         mover,

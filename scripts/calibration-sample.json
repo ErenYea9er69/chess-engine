@@ -1,0 +1,7 @@
+[
+  {
+    "_comment": "One entry per (game, side). 'losses' = every winPercentLoss() value for that side's non-book moves, in order. 'targetAccuracy' = the Accuracy chess.com's Game Review reported for that side. Delete this example and add your own before running the script — with only a placeholder entry the search result is meaningless.",
+    "losses": [0.4, 1.1, 0, 3.2, 0.8, 14.5, 2.1, 0.5, 0, 6.7],
+    "targetAccuracy": 76.4
+  }
+]
