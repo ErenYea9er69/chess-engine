@@ -32,7 +32,15 @@ interface PlyState {
   nonPawnMaterial: number;
 }
 
-const EVAL_DEPTH = 12;
+// Search depth for every position in the game. Higher finds more of the tactics a
+// shallow search misses, which matters a lot here: a move that looks fine at depth 12
+// can have a refutation only a deeper search sees, so low depth systematically
+// undercounts mistakes and blunders and overstates accuracy. 16 is a compromise
+// between staying close to chess.com's own (much deeper, cloud-assisted) analysis and
+// keeping a full game reviewable in the browser on the single-threaded lite build
+// shipped in public/engine. Raise it further if you want a closer match and can wait
+// longer per game.
+const EVAL_DEPTH = 16;
 const MATE_SCORE = 20; // pawns-equivalent used to cap the chart when a mate is found
 
 export default function AnalyzeMode({ engine, initialPgn }: AnalyzeModeProps) {
